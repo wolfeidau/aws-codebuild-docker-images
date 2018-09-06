@@ -128,9 +128,21 @@ RUN set -ex \
 	&& grep " node-v$NODE_VERSION-linux-x64.tar.gz\$" SHASUMS256.txt | sha256sum -c - \
 		&& tar -xzf "node-v$NODE_VERSION-linux-x64.tar.gz" -C /usr/local --strip-components=1 \
 		&& rm "node-v$NODE_VERSION-linux-x64.tar.gz" SHASUMS256.txt.asc SHASUMS256.txt \
-		&& ln -s /usr/local/bin/node /usr/local/bin/nodejs \
-		&& rm -fr /var/lib/apt/lists/* /tmp/* /var/tmp/*
+		&& ln -s /usr/local/bin/node /usr/local/bin/nodejs
 
 RUN npm set unsafe-perm true
+
+RUN npm install yarn -g
+RUN npm install npm -g
+
+RUN curl -fSL https://github.com/buildkite/agent/releases/download/v3.2.1/buildkite-agent-linux-amd64-3.2.1.tar.gz -o buildkite-agent.tar.gz \
+    && mkdir -p /opt/buildkite \
+    && tar --extract --file buildkite-agent.tar.gz --directory /opt/buildkite \
+    && rm buildkite-agent.tar.gz \
+    && chmod +x /opt/buildkite/buildkite-agent /opt/buildkite/bootstrap.sh \
+    && apt-get update && apt-get install -y --no-install-recommends jq \
+    && apt-get clean \
+    && rm -fr /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
 
 CMD [ "node" ]

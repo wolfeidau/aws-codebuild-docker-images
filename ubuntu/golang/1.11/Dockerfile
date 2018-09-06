@@ -93,6 +93,21 @@ RUN set -ex \
     && pip install awscli==1.* \
     && rm -fr /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
+VOLUME /var/lib/docker
+
+COPY dockerd-entrypoint.sh /usr/local/bin/
+
+ENV GOLANG_VERSION="1.11" \
+    GOLANG_DOWNLOAD_SHA256="b3fcf280ff86558e0559e185b601c9eade0fd24c900b4c63cd14d1d38613e499"
+
+RUN set -ex \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        pkg-config=0.26-* \
+    && apt-get clean \
+    && wget "https://storage.googleapis.com/golang/go$GOLANG_VERSION.linux-amd64.tar.gz" -O /tmp/golang.tar.gz \
+    && echo "$GOLANG_DOWNLOAD_SHA256 /tmp/golang.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/golang.tar.gz -C /usr/local
+
 RUN curl -fSL https://github.com/buildkite/agent/releases/download/v3.2.1/buildkite-agent-linux-amd64-3.2.1.tar.gz -o buildkite-agent.tar.gz \
     && mkdir -p /opt/buildkite \
     && tar --extract --file buildkite-agent.tar.gz --directory /opt/buildkite \
@@ -102,27 +117,4 @@ RUN curl -fSL https://github.com/buildkite/agent/releases/download/v3.2.1/buildk
     && apt-get clean \
     && rm -fr /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-ENV GOLANG_VERSION="1.10" \
-    GOLANG_DOWNLOAD_SHA256="b5a64335f1490277b585832d1f6c7f8c6c11206cba5cd3f771dcb87b98ad1a33" \
-    GOPATH="/go" \
-    DEP_VERSION="0.4.1" \
-    DEP_BINARY="dep-linux-amd64"
-
-RUN set -ex \
-    && mkdir -p "$GOPATH/src" "$GOPATH/bin" \
-    && chmod -R 777 "$GOPATH" \
-    && apt-get update && apt-get install -y --no-install-recommends pkg-config=0.26-* jq \
-    && apt-get clean \
-    && wget "https://storage.googleapis.com/golang/go$GOLANG_VERSION.linux-amd64.tar.gz" -O /tmp/golang.tar.gz \
-    && echo "$GOLANG_DOWNLOAD_SHA256 /tmp/golang.tar.gz" | sha256sum -c - \
-    && tar -xzf /tmp/golang.tar.gz -C /usr/local \
-    && rm -fr /var/lib/apt/lists/* /tmp/* /var/tmp/* \
-    && wget "https://github.com/golang/dep/releases/download/v$DEP_VERSION/$DEP_BINARY" -O "$GOPATH/bin/dep" \
-    && chmod +x "$GOPATH/bin/dep"
-
-ENV PATH="$GOPATH/bin:/usr/local/go/bin:${PATH}"
-
-VOLUME /var/lib/docker
-
-COPY dockerd-entrypoint.sh /usr/local/bin/
-
+ENV PATH="/go/bin:/usr/local/bin:$PATH"
