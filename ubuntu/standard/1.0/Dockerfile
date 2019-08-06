@@ -11,17 +11,14 @@
 
 FROM ubuntu:18.04
 
-ENV RUBY_MAJOR="2.6" \
- PYTHON_VERSION="3.7.2" \
- PHP_VERSION=7.3.1 \ 
+ENV PYTHON_VERSION="3.7.2" \
  NODE_VERSION="10.15.0" \
  NODE_8_VERSION="8.11.0" \
  NVM_VERSION="0.33.5" \
- GOLANG_VERSION="1.11.4" \
- DOTNET_SDK_VERSION="2.2.102" \
+ GOLANG_VERSION="1.12.4" \
  DOCKER_VERSION="18.09.1" \
- DOCKER_COMPOSE_VERSION="1.23.2"
-
+ DOCKER_COMPOSE_VERSION="1.23.2" \
+ BUILDKITE_VERSION="3.5.4"
 
 #****************        Utilities     ********************************************* 
 ENV DOCKER_BUCKET="download.docker.com" \    
@@ -117,54 +114,6 @@ COPY ssh_config /root/.ssh/config
 
 COPY dockerd-entrypoint.sh /usr/local/bin/
 
-#****************        RUBY     ********************************************* 
-ENV RUBY_VERSION="2.6.0" \
- RUBY_DOWNLOAD_SHA256="f3c35b924a11c88ff111f0956ded3cdc12c90c04b72b266ac61076d3697fc072" \
- RUBYGEMS_VERSION="3.0.1" \
- BUNDLER_VERSION="2.0.1" \
- GEM_HOME="/usr/local/bundle"
-
-ENV BUNDLE_PATH="$GEM_HOME" \
- BUNDLE_BIN="$GEM_HOME/bin" \
- BUNDLE_SILENCE_ROOT_WARNING=1 \
- BUNDLE_APP_CONFIG="$GEM_HOME"
-
-ENV PATH $BUNDLE_BIN:$PATH
-
-RUN mkdir -p /usr/local/etc \
-	&& { \
-     echo 'install: --no-document'; \
-     echo 'update: --no-document'; \
- } >> /usr/local/etc/gemrc \
- && apt-get update && apt-get install -y --no-install-recommends \
-    bison libgdbm-dev ruby \
- && wget "https://cache.ruby-lang.org/pub/ruby/$RUBY_MAJOR/ruby-$RUBY_VERSION.tar.gz" -O /tmp/ruby.tar.gz \
- && echo "$RUBY_DOWNLOAD_SHA256 /tmp/ruby.tar.gz" | sha256sum -c - \
- && mkdir -p /usr/src/ruby \
- && tar -xzf /tmp/ruby.tar.gz -C /usr/src/ruby --strip-components=1 \
- && cd /usr/src/ruby \
-	&& { \
-          echo '#define ENABLE_PATH_CHECK 0'; \
-          echo; \
-          cat file.c; \
-	   } > file.c.new \
- && mv file.c.new file.c \
- && autoconf \
- && ./configure --disable-install-doc \
- && make -j"$(nproc)" \
- && make install \
- && apt-get purge -y --auto-remove bison libgdbm-dev ruby \
- && cd / \
- && rm -r /usr/src/ruby \
- && gem update --system "$RUBYGEMS_VERSION" \
-	&& gem install bundler --version "$BUNDLER_VERSION" \
- && mkdir -p "$GEM_HOME" "$BUNDLE_BIN" \
- && chmod 777 "$GEM_HOME" "$BUNDLE_BIN" \
- && rm -fr /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
-#****************   END RUBY     ********************************************* 
-
-
 #****************        PYTHON     ********************************************* 
 ENV PATH="/usr/local/bin:$PATH" \
     GPG_KEY="0D96DF4D4110E5C43FBFB17F2D347EA6AA65421D" \
@@ -228,107 +177,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         && rm -fr /var/lib/apt/lists/* /tmp/* /var/tmp/*
 #****************      END PYTHON     ********************************************* 
 
-#****************      PHP     ****************************************************
- ENV GPG_KEYS CBAF69F173A0FEA4B537F470D66C9593118BCCB6 F38252826ACD957EF380D39F2F7956BC5DA04B5D
- ENV PHP_DOWNLOAD_SHA="cfe93e40be0350cd53c4a579f52fe5d8faf9c6db047f650a4566a2276bf33362" \
-     PHPPATH="/php" \
-     PHP_INI_DIR="/usr/local/etc/php" \
-     PHP_CFLAGS="-fstack-protector -fpic -fpie -O2" \
-     PHP_LDFLAGS="-Wl,-O1 -Wl,--hash-style=both -pie"
- ENV PHP_SRC_DIR="$SRC_DIR/php" \
-     PHP_CPPFLAGS="$PHP_CFLAGS" \
-     PHP_URL="https://secure.php.net/get/php-$PHP_VERSION.tar.xz/from/this/mirror" \
-     PHP_ASC_URL="https://secure.php.net/get/php-$PHP_VERSION.tar.xz.asc/from/this/mirror"
- RUN set -xe; \
-     mkdir -p $SRC_DIR; \
-     cd $SRC_DIR; \
-     wget -O php.tar.xz "$PHP_URL"; \
-     echo "$PHP_DOWNLOAD_SHA *php.tar.xz" | sha256sum -c -; \
-     wget -O php.tar.xz.asc "$PHP_ASC_URL"; \
-     export GNUPGHOME="$(mktemp -d)"; \
-     for key in $GPG_KEYS; do \
-         ( gpg --batch --keyserver ha.pool.sks-keyservers.net --recv-keys "$key" \
-           || gpg --keyserver pgp.mit.edu --recv-keys "$key" \
-           || gpg --keyserver keyserver.pgp.com --recv-keys "$key" ); \
-     done; \
-     gpg --batch --verify php.tar.xz.asc php.tar.xz; \
-     rm -rf "$GNUPGHOME"; \ 
-     set -eux; \
-     savedAptMark="$(apt-mark showmanual)"; \
-     apt-get update; \
-     apt-get install -y --no-install-recommends libedit-dev dpkg-dev libargon2-0-dev; \
-     rm -rf /var/lib/apt/lists/*; \
-     apt-get clean; \ 
-     export \
-         CFLAGS="$PHP_CFLAGS" \
-         CPPFLAGS="$PHP_CPPFLAGS" \
-         LDFLAGS="$PHP_LDFLAGS" \
-     ; \
-     mkdir -p $PHP_SRC_DIR; \
-     tar -Jxf $SRC_DIR/php.tar.xz -C $PHP_SRC_DIR --strip-components=1; \
-     cd $PHP_SRC_DIR; \
-     gnuArch="$(dpkg-architecture -qDEB_BUILD_GNU_TYPE)"; \
-     debMultiarch="$(dpkg-architecture -qDEB_BUILD_MULTIARCH)"; \
-     if [ ! -d /usr/include/curl ]; then \
-         ln -sT "/usr/include/$debMultiarch/curl" /usr/local/include/curl; \
-     fi; \
-     ./configure \
-         --build="$gnuArch" \
-         --with-config-file-path="$PHP_INI_DIR" \
-         --with-config-file-scan-dir="$PHP_INI_DIR/conf.d" \
-         --disable-cgi \
-     # --enable-ftp is included here because ftp_ssl_connect() needs ftp to be compiled statically (see https://github.com/docker-library/php/issues/236)
-         --enable-ftp \
-     # --enable-mbstring is included here because otherwise there's no way to get pecl to use it properly (see https://github.com/docker-library/php/issues/195)
-         --enable-mbstring \
-     # --enable-mysqlnd is included here because it's harder to compile after the fact than extensions are (since it's a plugin for several extensions, not an extension in itself)
-         --enable-mysqlnd \
-         --enable-sockets \
-         --enable-pcntl \
-     # https://wiki.php.net/rfc/argon2_password_hash (7.2+)
-         --with-password-argon2 \
-         --with-curl \
-         --with-pdo-pgsql \
-         --with-pdo-mysql \
-         --with-libedit \
-         --with-openssl \
-         --with-zlib \
-     $(test "$gnuArch" = 's390x-linux-gnu' && echo '--without-pcre-jit') \
-         --with-libdir="lib/$debMultiarch" \
-     ${PHP_EXTRA_CONFIGURE_ARGS:-} \
-     ; \
-     make -j "$(nproc)"; \
-     make install; \
-     find /usr/local/bin /usr/local/sbin -type f -executable -exec strip --strip-all '{}' + || true; \
-     make clean; \
-     cd /; \
-     rm -rf $PHP_SRC_DIR; \
-     rm $SRC_DIR/php.tar.xz; \
-     apt-mark auto '.*' > /dev/null; \
-     [ -z "$savedAptMark" ] || apt-mark manual $savedAptMark; \
-     find /usr/local -type f -executable -exec ldd '{}' ';' \
-         | awk '/=>/ { print $(NF-1) }' \
-         | sort -u \
-         | xargs -r dpkg-query --search \
-         | cut -d: -f1 \
-         | sort -u \
-         | xargs -r apt-mark manual \
-     ; \
-     apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
-     php --version; \
-     pecl update-channels; \
-     rm -rf /tmp/pear ~/.pearrc; \
-     mkdir "$PHP_INI_DIR"; \
-     mkdir "$PHP_INI_DIR/conf.d"; \
-     touch "$PHP_INI_DIR/conf.d/memory.ini" \
-     && echo "memory_limit = 1G;" >> "$PHP_INI_DIR/conf.d/memory.ini";
- 
- ENV PATH="$PHPPATH/bin:/usr/local/php/bin:$PATH"
- 
- # Install Composer globally
- RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/bin --filename=composer
-#****************      END PHP     ****************************************************
- 
 #****************      NODEJS     ****************************************************
 
  ENV N_SRC_DIR="$SRC_DIR/n"
@@ -344,105 +192,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 #****************      END NODEJS     ****************************************************
 
-#****************      JAVA     ****************************************************
-# Copy install tools
-COPY tools /opt/tools
-
-ENV JAVA_HOME="/usr/lib/jvm/java-8-openjdk-amd64" \
-    JDK_HOME="/usr/lib/jvm/java-8-openjdk-amd64" \
-    JRE_HOME="/usr/lib/jvm/java-8-openjdk-amd64/jre" \
-    ANT_VERSION=1.10.5 \
-    MAVEN_HOME="/opt/maven" \
-    MAVEN_VERSION=3.6.0 \
-    MAVEN_CONFIG="/root/.m2" \
-    INSTALLED_GRADLE_VERSIONS="4.10.2 5.2.1" \
-    GRADLE_VERSION=5.2.1 \
-    SBT_VERSION=1.2.8 \
-    JDK_VERSION=11.0.2 \
-    JDK_VERSION_TAG=9 \
-    ANDROID_HOME="/usr/local/android-sdk-linux" \
-    GRADLE_PATH="$SRC_DIR/gradle" \
-    ANDROID_SDK_MANAGER_VER="4333796" \
-    ANDROID_SDK_BUILD_TOOLS="build-tools;28.0.3" \
-    ANDROID_SDK_PLATFORM_TOOLS="platforms;android-28" \
-    ANDROID_SDK_EXTRAS="extras;android;m2repository extras;google;m2repository extras;google;google_play_services" \   
-    JDK_DOWNLOAD_SHA256="99be79935354f5c0df1ad293620ea36d13f48ec3ea870c838f20c504c9668b57" \
-    ANT_DOWNLOAD_SHA512="acfa34c4f820d882f26ec67cf885d7dd484d534a7e99b33b05779e03da61849610328d2dbb4bfaa201e1ae75a0f0901e9c2bb793ed7bd76d3e4497e6ca5de371" \
-    MAVEN_DOWNLOAD_SHA512="fae9c12b570c3ba18116a4e26ea524b29f7279c17cbaadc3326ca72927368924d9131d11b9e851b8dc9162228b6fdea955446be41207a5cfc61283dd8a561d2f" \
-    GRADLE_DOWNLOAD_SHA256="748c33ff8d216736723be4037085b8dc342c6a0f309081acf682c9803e407357" \
-    ANDROID_SDK_MANAGER_SHA256="92ffee5a1d98d856634e8b71132e8a95d96c83a63fde1099be3d86df3106def9"
-
-ENV JDK_DOWNLOAD_TAR="openjdk-${JDK_VERSION}_linux-x64_bin.tar.gz"
-
-ENV PATH="${PATH}:/opt/tools:${ANDROID_HOME}/tools:${ANDROID_HOME}/tools/bin:${ANDROID_HOME}/platform-tools"
-
-RUN set -ex \
-    && apt-get update \
-    && apt-get install -y software-properties-common \
-    # Install OpenJDK 8
-    && add-apt-repository -y ppa:openjdk-r/ppa \
-    && apt-get update \
-    && apt-get install -y openjdk-8-jdk \
-    && apt-get install -y --no-install-recommends ca-certificates-java \
-    # Ensure Java cacerts symlink points to valid location
-    && update-ca-certificates -f \
-    && dpkg --add-architecture i386 \
-    && apt-get update \
-    && apt-get install -y --force-yes libc6-i386 \
-       lib32stdc++6 lib32gcc1 lib32ncurses5 \
-       lib32z1 libqt5widgets5 \
-    # Install Android SDK manager
-    && wget "https://dl.google.com/android/repository/sdk-tools-linux-${ANDROID_SDK_MANAGER_VER}.zip" -O /tmp/android-sdkmanager.zip \
-    && echo "${ANDROID_SDK_MANAGER_SHA256} /tmp/android-sdkmanager.zip" | sha256sum -c - \
-    && mkdir -p ${ANDROID_HOME} \
-    && unzip /tmp/android-sdkmanager.zip -d ${ANDROID_HOME} \
-    && chown -R root.root ${ANDROID_HOME} \
-    && ln -s ${ANDROID_HOME}/tools/android /usr/bin/android \
-    # Install Android SDK
-    && android-accept-licenses.sh "sdkmanager --verbose platform-tools ${ANDROID_SDK_BUILD_TOOLS} ${ANDROID_SDK_PLATFORM_TOOLS} ${ANDROID_SDK_EXTRAS}" \
-    && android-accept-licenses.sh "sdkmanager --licenses" \
-    && apt-get install -y python-setuptools \     
-    # Install Ant
-    && curl -LSso /var/tmp/apache-ant-$ANT_VERSION-bin.tar.gz https://archive.apache.org/dist/ant/binaries/apache-ant-$ANT_VERSION-bin.tar.gz  \
-    && echo "$ANT_DOWNLOAD_SHA512 /var/tmp/apache-ant-$ANT_VERSION-bin.tar.gz" | sha512sum -c - \
-    && tar -xzf /var/tmp/apache-ant-$ANT_VERSION-bin.tar.gz -C /opt \
-    && update-alternatives --install /usr/bin/ant ant /opt/apache-ant-$ANT_VERSION/bin/ant 10000 \    
-    # Install Maven
-    && mkdir -p $MAVEN_HOME \
-    && curl -LSso /var/tmp/apache-maven-$MAVEN_VERSION-bin.tar.gz https://apache.org/dist/maven/maven-3/$MAVEN_VERSION/binaries/apache-maven-$MAVEN_VERSION-bin.tar.gz \
-    && echo "$MAVEN_DOWNLOAD_SHA512 /var/tmp/apache-maven-$MAVEN_VERSION-bin.tar.gz" | sha512sum -c - \
-    && tar xzvf /var/tmp/apache-maven-$MAVEN_VERSION-bin.tar.gz -C $MAVEN_HOME --strip-components=1 \
-    && update-alternatives --install /usr/bin/mvn mvn /opt/maven/bin/mvn 10000 \
-    && mkdir -p $MAVEN_CONFIG \    
-    # Install Gradle
-    && mkdir -p $GRADLE_PATH \
-    && for version in $INSTALLED_GRADLE_VERSIONS; do { \
-       wget "https://services.gradle.org/distributions/gradle-$version-all.zip" -O "$GRADLE_PATH/gradle-$version-all.zip" \
-       && unzip "$GRADLE_PATH/gradle-$version-all.zip" -d /usr/local \
-       && mkdir "/tmp/gradle-$version" \
-       && "/usr/local/gradle-$version/bin/gradle" -p "/tmp/gradle-$version" wrapper \
-       # Android Studio uses the "-all" distribution for it's wrapper script.
-       && perl -pi -e "s/gradle-$version-bin.zip/gradle-$version-all.zip/" "/tmp/gradle-$version/gradle/wrapper/gradle-wrapper.properties" \
-       && "/tmp/gradle-$version/gradlew" -p "/tmp/gradle-$version" init \
-       && rm -rf "/tmp/gradle-$version" \
-       && if [ "$version" != "$GRADLE_VERSION" ]; then rm -rf "/usr/local/gradle-$version"; fi; \
-     }; done \
-    # Install default GRADLE_VERSION to path
-      && ln -s /usr/local/gradle-$GRADLE_VERSION/bin/gradle /usr/bin/gradle \
-      && rm -rf $GRADLE_PATH \   
-    # Install SBT
-    && echo "deb https://dl.bintray.com/sbt/debian /" | tee -a /etc/apt/sources.list.d/sbt.list \
-    && apt-get install -y --no-install-recommends apt-transport-https \
-    && apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv 2EE0EA64E40A89B84B2DF73499E82A75642AC823 \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends sbt=$SBT_VERSION \    
-    # Cleanup
-    && rm -fr /var/lib/apt/lists/* /tmp/* /var/tmp/* \
-    && apt-get clean
-#****************     END JAVA     ****************************************************
 
 #****************     GO     **********************************************************
-ENV GOLANG_DOWNLOAD_SHA256="fb26c30e6a04ad937bbc657a1b5bba92f80096af1e8ee6da6430c045a8db3a5b" \
+ENV GOLANG_DOWNLOAD_SHA256="d7d1f1f88ddfe55840712dc1747f37a790cbcaa448f6c9cf51bbe10aa65442f5" \
     GOPATH="/go" \
     DEP_VERSION="0.5.0" \
     DEP_BINARY="dep-linux-amd64"
@@ -463,61 +215,6 @@ RUN set -ex \
 ENV PATH="$GOPATH/bin:/usr/local/go/bin:$PATH"
 #****************     END GO     **********************************************************
 
-#****************     .NET-CORE     *******************************************************
-RUN set -ex \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
-        libc6 \
-        libgcc1 \
-        libgssapi-krb5-2 \
-        liblttng-ust0 \
-        libstdc++6 \
-        zlib1g \
-        software-properties-common \
-    && add-apt-repository ppa:ubuntu-toolchain-r/test -y \
-    && apt-get update \   
-    && rm -rf /var/lib/apt/lists/*
-
-# Install .NET Core SDK
-ENV DOTNET_SDK_DOWNLOAD_URL https://dotnetcli.blob.core.windows.net/dotnet/Sdk/$DOTNET_SDK_VERSION/dotnet-sdk-$DOTNET_SDK_VERSION-linux-x64.tar.gz
-ENV DOTNET_SDK_DOWNLOAD_SHA d7ed76a0efe2b07ac0bb3af611072b3b99f646200759cb5905a7944b1687f34d42b4b74a3a5c77dbe251f769c6c3878fc30a8d0f8f44e44bf4c7116699f3f948
-
-RUN set -ex \
-    && curl -SL $DOTNET_SDK_DOWNLOAD_URL --output dotnet.tar.gz \
-    && echo "$DOTNET_SDK_DOWNLOAD_SHA dotnet.tar.gz" | sha512sum -c - \
-    && mkdir -p /usr/share/dotnet \
-    && tar -zxf dotnet.tar.gz -C /usr/share/dotnet \
-    && rm dotnet.tar.gz \
-    && ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet
-
-# Add .NET Core Global Tools install folder to PATH
-ENV PATH "~/.dotnet/tools/:$PATH"
-
-# Trigger the population of the local package cache
-ENV NUGET_XMLDOC_MODE skip
-RUN set -ex \
-    && mkdir warmup \
-    && cd warmup \
-    && dotnet new \
-    && cd .. \
-    && rm -rf warmup \
-    && rm -rf /tmp/NuGetScratch
-
-# Install Powershell Core
-# See instructions at https://docs.microsoft.com/en-us/powershell/scripting/setup/installing-powershell-core-on-linux
-ENV POWERSHELL_VERSION 6.1.1
-ENV POWERSHELL_DOWNLOAD_URL https://github.com/PowerShell/PowerShell/releases/download/v$POWERSHELL_VERSION/powershell-$POWERSHELL_VERSION-linux-x64.tar.gz
-ENV POWERSHELL_DOWNLOAD_SHA 822CB473A5B3D076584181BB5D308035A9FBD079A68762E9E6C0D7543E05B513
-
-RUN set -ex \
-    && curl -SL $POWERSHELL_DOWNLOAD_URL --output powershell.tar.gz \
-    && echo "$POWERSHELL_DOWNLOAD_SHA powershell.tar.gz" | sha256sum -c - \
-    && mkdir -p /opt/microsoft/powershell/$POWERSHELL_VERSION \
-    && tar zxf powershell.tar.gz -C /opt/microsoft/powershell/$POWERSHELL_VERSION \
-    && rm powershell.tar.gz \
-    && ln -s /opt/microsoft/powershell/$POWERSHELL_VERSION/pwsh /usr/bin/pwsh
-#****************     END .NET-CORE     *******************************************************
-
 #****************    HEADLESS BROWSERS     *******************************************************
 RUN set -ex \
     && apt-add-repository "deb http://archive.canonical.com/ubuntu $(lsb_release -sc) partner" \
@@ -537,3 +234,12 @@ RUN set -ex \
     && rm -rf /tmp/google-chrome-stable_current_amd64.deb \
     && sed -i 's|HERE/chrome"|HERE/chrome" --disable-setuid-sandbox --no-sandbox|g' "/opt/google/chrome/google-chrome" \
     && google-chrome --version
+
+# Install Buildkite
+
+RUN set -ex \
+	&& mkdir -p /opt/buildkite \
+	&& curl -fSL https://github.com/buildkite/agent/releases/download/v${BUILDKITE_VERSION}/buildkite-agent-linux-amd64-${BUILDKITE_VERSION}.tar.gz -o buildkite-agent.tgz \
+	&& tar --extract --file buildkite-agent.tgz --strip-components 1  --directory /opt/buildkite \
+	&& /opt/buildkite/buildkite-agent --version \
+	&& rm buildkite-agent.tgz

@@ -13,14 +13,13 @@ FROM ubuntu:18.04
 
 ENV RUBY_VERSION="2.6.3" \
  PYTHON_VERSION="3.7.3" \
- PHP_VERSION=7.3.6 \
  JAVA_VERSION=11 \
  NODE_VERSION="10.16.0" \
  NODE_8_VERSION="8.16.0" \
  GOLANG_VERSION="1.12.5" \
- DOTNET_SDK_VERSION="2.2.300" \
  DOCKER_VERSION="18.09.6" \
- DOCKER_COMPOSE_VERSION="1.24.0"
+ DOCKER_COMPOSE_VERSION="1.24.0" \
+ BUILDKITE_VERSION="3.5.4"
 
 #****************        Utilities     ********************************************* 
 ENV DOCKER_BUCKET="download.docker.com" \    
@@ -198,107 +197,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         && rm -fr /var/lib/apt/lists/* /tmp/* /var/tmp/*
 #****************      END PYTHON     ********************************************* 
 
-#****************      PHP     ****************************************************
- ENV GPG_KEYS CBAF69F173A0FEA4B537F470D66C9593118BCCB6 F38252826ACD957EF380D39F2F7956BC5DA04B5D
- ENV PHP_DOWNLOAD_SHA="fefc8967daa30ebc375b2ab2857f97da94ca81921b722ddac86b29e15c54a164" \
-     PHPPATH="/php" \
-     PHP_INI_DIR="/usr/local/etc/php" \
-     PHP_CFLAGS="-fstack-protector -fpic -fpie -O2" \
-     PHP_LDFLAGS="-Wl,-O1 -Wl,--hash-style=both -pie"
- ENV PHP_SRC_DIR="$SRC_DIR/php" \
-     PHP_CPPFLAGS="$PHP_CFLAGS" \
-     PHP_URL="https://secure.php.net/get/php-$PHP_VERSION.tar.xz/from/this/mirror" \
-     PHP_ASC_URL="https://secure.php.net/get/php-$PHP_VERSION.tar.xz.asc/from/this/mirror"
- RUN set -xe; \
-     mkdir -p $SRC_DIR; \
-     cd $SRC_DIR; \
-     wget -O php.tar.xz "$PHP_URL"; \
-     echo "$PHP_DOWNLOAD_SHA *php.tar.xz" | sha256sum -c -; \
-     wget -O php.tar.xz.asc "$PHP_ASC_URL"; \
-     export GNUPGHOME="$(mktemp -d)"; \
-     for key in $GPG_KEYS; do \
-         ( gpg --batch --keyserver ha.pool.sks-keyservers.net --recv-keys "$key" \
-           || gpg --keyserver pgp.mit.edu --recv-keys "$key" \
-           || gpg --keyserver keyserver.pgp.com --recv-keys "$key" ); \
-     done; \
-     gpg --batch --verify php.tar.xz.asc php.tar.xz; \
-     rm -rf "$GNUPGHOME"; \
-     set -eux; \
-     savedAptMark="$(apt-mark showmanual)"; \
-     apt-get update; \
-     apt-get install -y --no-install-recommends libedit-dev dpkg-dev libargon2-0-dev; \
-     rm -rf /var/lib/apt/lists/*; \
-     apt-get clean; \ 
-     export \
-         CFLAGS="$PHP_CFLAGS" \
-         CPPFLAGS="$PHP_CPPFLAGS" \
-         LDFLAGS="$PHP_LDFLAGS" \
-     ; \
-     mkdir -p $PHP_SRC_DIR; \
-     tar -Jxf $SRC_DIR/php.tar.xz -C $PHP_SRC_DIR --strip-components=1; \
-     cd $PHP_SRC_DIR; \
-     gnuArch="$(dpkg-architecture -qDEB_BUILD_GNU_TYPE)"; \
-     debMultiarch="$(dpkg-architecture -qDEB_BUILD_MULTIARCH)"; \
-     if [ ! -d /usr/include/curl ]; then \
-         ln -sT "/usr/include/$debMultiarch/curl" /usr/local/include/curl; \
-     fi; \
-     ./configure \
-         --build="$gnuArch" \
-         --with-config-file-path="$PHP_INI_DIR" \
-         --with-config-file-scan-dir="$PHP_INI_DIR/conf.d" \
-         --disable-cgi \
-     # --enable-ftp is included here because ftp_ssl_connect() needs ftp to be compiled statically (see https://github.com/docker-library/php/issues/236)
-         --enable-ftp \
-     # --enable-mbstring is included here because otherwise there's no way to get pecl to use it properly (see https://github.com/docker-library/php/issues/195)
-         --enable-mbstring \
-     # --enable-mysqlnd is included here because it's harder to compile after the fact than extensions are (since it's a plugin for several extensions, not an extension in itself)
-         --enable-mysqlnd \
-         --enable-sockets \
-         --enable-pcntl \
-     # https://wiki.php.net/rfc/argon2_password_hash (7.2+)
-         --with-password-argon2 \
-         --with-curl \
-         --with-pdo-pgsql \
-         --with-pdo-mysql \
-         --with-libedit \
-         --with-openssl \
-         --with-zlib \
-     $(test "$gnuArch" = 's390x-linux-gnu' && echo '--without-pcre-jit') \
-         --with-libdir="lib/$debMultiarch" \
-     ${PHP_EXTRA_CONFIGURE_ARGS:-} \
-     ; \
-     make -j "$(nproc)"; \
-     make install; \
-     find /usr/local/bin /usr/local/sbin -type f -executable -exec strip --strip-all '{}' + || true; \
-     make clean; \
-     cd /; \
-     rm -rf $PHP_SRC_DIR; \
-     rm $SRC_DIR/php.tar.xz; \
-     apt-mark auto '.*' > /dev/null; \
-     [ -z "$savedAptMark" ] || apt-mark manual $savedAptMark; \
-     find /usr/local -type f -executable -exec ldd '{}' ';' \
-         | awk '/=>/ { print $(NF-1) }' \
-         | sort -u \
-         | xargs -r dpkg-query --search \
-         | cut -d: -f1 \
-         | sort -u \
-         | xargs -r apt-mark manual \
-     ; \
-     apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
-     php --version; \
-     pecl update-channels; \
-     rm -rf /tmp/pear ~/.pearrc; \
-     mkdir "$PHP_INI_DIR"; \
-     mkdir "$PHP_INI_DIR/conf.d"; \
-     touch "$PHP_INI_DIR/conf.d/memory.ini" \
-     && echo "memory_limit = 1G;" >> "$PHP_INI_DIR/conf.d/memory.ini";
- 
- ENV PATH="$PHPPATH/bin:/usr/local/php/bin:$PATH"
- 
- # Install Composer globally
- RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/bin --filename=composer
-#****************      END PHP     ****************************************************
-
 #****************      NODEJS     ****************************************************
 
  ENV N_SRC_DIR="$SRC_DIR/n"
@@ -452,61 +350,6 @@ RUN set -ex \
 ENV PATH="$GOPATH/bin:/usr/local/go/bin:$PATH"
 #****************     END GO     **********************************************************
 
-#****************     .NET-CORE     *******************************************************
-RUN set -ex \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
-        libc6 \
-        libgcc1 \
-        libgssapi-krb5-2 \
-        liblttng-ust0 \
-        libstdc++6 \
-        zlib1g \
-        software-properties-common \
-    && add-apt-repository ppa:ubuntu-toolchain-r/test -y \
-    && apt-get update \   
-    && rm -rf /var/lib/apt/lists/*
-
-# Install .NET Core SDK
-ENV DOTNET_SDK_DOWNLOAD_URL https://dotnetcli.blob.core.windows.net/dotnet/Sdk/$DOTNET_SDK_VERSION/dotnet-sdk-$DOTNET_SDK_VERSION-linux-x64.tar.gz
-ENV DOTNET_SDK_DOWNLOAD_SHA 1D660A323180DF3DA8C6E0EA3F439D6BBEC29670D498AC884F38BF3CDFFBB041C7AFFF66171CDFD24C82394B845B135B057404DEF1FCE9F206853726382BC42B
-
-RUN set -ex \
-    && curl -SL $DOTNET_SDK_DOWNLOAD_URL --output dotnet.tar.gz \
-    && echo "$DOTNET_SDK_DOWNLOAD_SHA dotnet.tar.gz" | sha512sum -c - \
-    && mkdir -p /usr/share/dotnet \
-    && tar -zxf dotnet.tar.gz -C /usr/share/dotnet \
-    && rm dotnet.tar.gz \
-    && ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet
-
-# Add .NET Core Global Tools install folder to PATH
-ENV PATH "~/.dotnet/tools/:$PATH"
-
-# Trigger the population of the local package cache
-ENV NUGET_XMLDOC_MODE skip
-RUN set -ex \
-    && mkdir warmup \
-    && cd warmup \
-    && dotnet new \
-    && cd .. \
-    && rm -rf warmup \
-    && rm -rf /tmp/NuGetScratch
-
-# Install Powershell Core
-# See instructions at https://docs.microsoft.com/en-us/powershell/scripting/setup/installing-powershell-core-on-linux
-ARG POWERSHELL_VERSION=6.2.1
-ENV POWERSHELL_DOWNLOAD_URL https://github.com/PowerShell/PowerShell/releases/download/v$POWERSHELL_VERSION/powershell-$POWERSHELL_VERSION-linux-x64.tar.gz
-ENV POWERSHELL_DOWNLOAD_SHA E8287687C99162BF70FEFCC2E492F3B54F80BE880D86B9A0EC92C71B05C40013
-
-RUN set -ex \
-    && curl -SL $POWERSHELL_DOWNLOAD_URL --output powershell.tar.gz \
-    && echo "$POWERSHELL_DOWNLOAD_SHA powershell.tar.gz" | sha256sum -c - \
-    && mkdir -p /opt/microsoft/powershell/$POWERSHELL_VERSION \
-    && tar zxf powershell.tar.gz -C /opt/microsoft/powershell/$POWERSHELL_VERSION \
-    && rm powershell.tar.gz \
-    && ln -s /opt/microsoft/powershell/$POWERSHELL_VERSION/pwsh /usr/bin/pwsh
-#****************     END .NET-CORE     *******************************************************
-
 #****************    HEADLESS BROWSERS     *******************************************************
 RUN set -ex \
     && apt-add-repository -y "deb http://archive.canonical.com/ubuntu $(lsb_release -sc) partner" \
@@ -539,3 +382,14 @@ RUN set -ex \
     && chmod 755 /opt/chromedriver-$CHROME_DRIVER_VERSION \
     && ln -s /opt/chromedriver-$CHROME_DRIVER_VERSION /usr/bin/chromedriver \
     && chromedriver --version
+
+# Install Buildkite
+
+RUN set -ex \
+	&& mkdir -p /opt/buildkite \
+	&& curl -fSL https://github.com/buildkite/agent/releases/download/v${BUILDKITE_VERSION}/buildkite-agent-linux-amd64-${BUILDKITE_VERSION}.tar.gz -o buildkite-agent.tgz \
+	&& tar --extract --file buildkite-agent.tgz --strip-components 1  --directory /opt/buildkite \
+	&& /opt/buildkite/buildkite-agent --version \
+	&& rm buildkite-agent.tgz
+
+RUN rm /codebuild/image/config/runtimes.yml
